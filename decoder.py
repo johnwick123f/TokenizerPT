@@ -109,6 +109,7 @@ class AudioTokenizer():
 
         state_dict = load_file(model_path)
         missing_keys, unexpected_keys = self.detokenizer.load_state_dict(state_dict, strict=False)
+        self.detokenizer = self.detokenizer.eval().half().to("cuda:0").half()
         
 
     def decode(self, x):
