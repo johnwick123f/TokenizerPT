@@ -1,4 +1,7 @@
 import torch.nn as nn
+from omegaconf import OmegaConf, DictConfig
+from pathlib import Path
+from safetensors.torch import load_file
 
 from layers import (
     Snake1d,
@@ -8,7 +11,29 @@ from layers import (
     init_weights,
 )
 
+def remove_weight_norm_recursive(m):
+    """
+    Recursively removes weight normalization from a module.
+    """
+    try:
+        if hasattr(m, 'weight_g') and hasattr(m, 'weight_v'):
+            # This is a good sign of weight_norm
+            nn.utils.remove_weight_norm(m)
+    except Exception as e:
+        print(f"Could not remove weight norm from {m}: {e}")
 
+def load_config(config_path: Path):
+    
+    # Load the initial configuration from the given path
+    config = OmegaConf.load(config_path)
+
+    # Check if there is a base configuration specified and merge if necessary
+    if config.get("base_config", None) is not None:
+        base_config = OmegaConf.load(config["base_config"])
+        config = OmegaConf.merge(base_config, config)
+
+    return config
+    
 class DecoderBlock(nn.Module):
     def __init__(
         self,
@@ -36,7 +61,7 @@ class DecoderBlock(nn.Module):
         return self.block(x)
 
 
-class WaveGenerator(nn.Module):
+class Decoder(nn.Module):
     def __init__(
         self,
         input_channel,
@@ -69,3 +94,22 @@ class WaveGenerator(nn.Module):
 
     def forward(self, x):
         return self.model(x)
+
+
+class AudioTokenizer():
+    def __init__(
+        self,
+        model_path: str,
+    ):
+        """loads the audio detokenizer with predefined config, uses torch as onnx is infact slower"""
+        
+        model_config = {'input_channel': 1024, 'channels': 1536, 'rates': [8, 5, 4, 2], 'kernel_sizes': [16, 11, 8, 4]}
+        self.detokenizer = Decoder(**model_config)
+        self.detokenizer.apply(remove_weight_norm_recursive)
+
+        state_dict = load_file(model_path)
+        missing_keys, unexpected_keys = self.detokenizer.load_state_dict(state_dict, strict=False)
+        
+
+    def decode(self, x):
+        return self.detokenizer(x)
